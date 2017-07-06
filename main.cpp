@@ -1,16 +1,18 @@
 #include <complex>
 #include <iostream>
 #include <thread>
+#include <fstream>
+#include <set>
 
 #include <SDL.h>
 #include <stdlib.h> //rand()
-#define MAX_ITER 1200
+#define MAX_ITER 8000
 
 static float r = 0.0f;
 static SDL_Window *gWindow = NULL;
 static SDL_Surface * gScreenSurface = NULL;
 
-int xRes = 800, yRes = 600 ;
+int xRes = 1920, yRes = 1080 ;
 
 void set_pixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
     // printf( "%d\n", surface->pitch ) ;
@@ -31,10 +33,6 @@ void PutPixel32_nolock(SDL_Surface * surface, int x, int y, Uint32 color) {
 }
 
 void render() {
-    double xBorder = 2 ;
-    double yBorder = 2 ;
-    double xScale = 0.008 * ( xBorder / 2 ) ;
-    double yScale = 0.008 * ( yBorder / 2 ) ;
     SDL_FillRect( gScreenSurface, NULL,
                   SDL_MapRGB( gScreenSurface->format,
                               0,
@@ -42,29 +40,57 @@ void render() {
                               0
                             )
                 ) ;
-    SDL_LockSurface(gScreenSurface);
+    std::fstream log ;
+    log.open( "log", std::ios::out ) ;
+    std::set<double> cRec ;
+    //SDL_LockSurface(gScreenSurface);
     {
         /*mandelbrot here*/
-        for ( double Re = -2 ; Re <= 0 ; Re += 0.002 ) {
-            for ( double Im = -2 ; Im <= 0 ; Im += 0.002 ) {
+        double zrSqr = 0, ziSqr = 0, zrMulzi = 0 ;
+        for ( double Re = -2 ; Re <= 2 ; Re += 0.00208 ) {
+            for ( double Im = -2 ; Im <= 2 ; Im += 0.00208 ) {
                 std::complex<double> z( 0, 0 ) ;
                 std::complex<double> c( Re, Im ) ;
-                bool in = false ;
+                bool in = false, cache = false ;
                 int iterCount = 1 ;
+                // log << c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() << std::endl ;
                 for ( iterCount = 1 ; iterCount <= MAX_ITER ; ++ iterCount ) {
-                    z = c + std::pow( z, 2 ) ;
-                    if ( z.real() * z.real() + z.imag() * z.imag() > 4 ) {
-                        PutPixel32_nolock( gScreenSurface, (int)( Re / 0.002 + 800 ), (int)( Im / 0.002 + 600 ), ( iterCount * 20 ) + 0x0055141C ) ;
-                        in = false ;
+                    static std::complex<double> temp;
+                    zrSqr = z.real() * z.real() ;
+                    ziSqr = z.imag() * z.imag() ;
+                    zrMulzi = z.real() * z.imag() ;
+                    temp.real( zrSqr - ziSqr ) ;
+                    temp.imag( zrMulzi + zrMulzi ) ;
+                    // z = c + std::pow( z, 2 ) ;
+                    z = c + temp ;
+                    if ( iterCount == 1 && cRec.find( c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ) != cRec.end() ) {
+                        std::cout << "HIT!" << std::endl ;
+                        in = true ;
+                        cache = true ;
                         break ;
                     } // if
-                    else
+                    else if ( zrSqr + ziSqr > 4 ) {
+                        PutPixel32_nolock( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), ( iterCount * 20 ) + 0x0055141C ) ;
+                        in = false ;
+                        // cRec[ c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ] = iterCount ;
+                        //log << z << " OUT[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
+                        break ;
+                    } // if
+                    else {
+                        //log << z << " ITER[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
                         in = true ;
+                    } // else
                 } // for
 
                 if ( in ) {
                     //std::cout << 0.008 * ( xBorder / 2 )<< " " << 0.008 * ( yBorder / 2 ) << std::endl ;
-                    PutPixel32_nolock( gScreenSurface, (int)( Re / 0.002 + 800 ), (int)( Im / 0.002 + 600 ), 0x0 ) ;
+                    //log << z << " IN" << std::endl ;
+                    // system( "pause" ) ;
+                    if ( !cache )
+                      cRec.insert( c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ) ;
+                    else
+                      cache = false ;
+                    PutPixel32_nolock( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), 0x0 ) ;
                     //SDL_UpdateWindowSurface( gWindow );
                     // std::cout << "(" << (int)( (Re+1)/0.008 ) << "," << (int)( (Im+1)/0.008 ) << ")" << std::endl ;
                 } // if
@@ -72,8 +98,8 @@ void render() {
         } // for
 
     }
-    SDL_UnlockSurface(gScreenSurface);
-
+    //SDL_UnlockSurface(gScreenSurface);
+    log.close() ;
     SDL_UpdateWindowSurface( gWindow );
     return ;
 } //render
@@ -115,9 +141,19 @@ int main(int argc, char *argv[]) {
                 ) ;
     // SDL_AddEventWatch(watch, NULL);
     // system( "pause" ) ;
-    std::thread renderThread( render ) ;
+    // std::thread renderThread( render ) ;
     bool quitting = false ;
     //double x =1 , y = 1 ;
+
+    auto start = std::chrono::system_clock::now();
+    // do some work
+    render() ;
+    // record end time
+    auto end = std::chrono::system_clock::now();
+    std::chrono::duration<double> diff = end-start;
+    std::cout << "Render time is " << diff.count() << " s\n";
+
+
     while(!quitting) {
 
         SDL_Event event;
@@ -129,9 +165,9 @@ int main(int argc, char *argv[]) {
                 if ( event.type == SDL_MOUSEBUTTONDOWN ) {
                     switch (event.button.button) {
                     case SDL_BUTTON_LEFT : {
-                      int mx = 0, my = 0 ;
-                      SDL_GetMouseState( &mx, &my ) ;
-                      printf( "%d %d\n", mx, my ) ;
+                        int mx = 0, my = 0 ;
+                        SDL_GetMouseState( &mx, &my ) ;
+                        printf( "%d %d\n", mx, my ) ;
                     }
                     break;
                     case SDL_BUTTON_RIGHT:
@@ -152,7 +188,7 @@ int main(int argc, char *argv[]) {
         // SDL_Delay(10);
     }
 
-    renderThread.join() ;
+    // renderThread.join() ;
     SDL_DestroyWindow(gWindow);
     SDL_Quit();
 
