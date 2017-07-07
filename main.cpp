@@ -2,7 +2,8 @@
 #include <iostream>
 #include <thread>
 #include <fstream>
-#include <set>
+#include <map>
+#include <algorithm>
 
 #include <SDL.h>
 #include <stdlib.h> //rand()
@@ -32,6 +33,44 @@ void PutPixel32_nolock(SDL_Surface * surface, int x, int y, Uint32 color) {
     *((Uint32*)pixel) = color;
 }
 
+void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
+{
+    if ( x < 0 || y < 0 )
+        return ;
+    if ( x >= xRes || y >= yRes )
+        return ;
+
+    int bpp = surface->format->BytesPerPixel;
+    /* Here p is the address to the pixel we want to set */
+    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+
+    switch(bpp) {
+    case 1:
+        *p = pixel;
+        break;
+
+    case 2:
+        *(Uint16 *)p = pixel;
+        break;
+
+    case 3:
+        if(SDL_BYTEORDER == SDL_BIG_ENDIAN) {
+            p[0] = (pixel >> 16) & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = pixel & 0xff;
+        } else {
+            p[0] = pixel & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = (pixel >> 16) & 0xff;
+        }
+        break;
+
+    case 4:
+        *(Uint32 *)p = pixel;
+        break;
+    }
+}
+
 void render() {
     SDL_FillRect( gScreenSurface, NULL,
                   SDL_MapRGB( gScreenSurface->format,
@@ -41,9 +80,10 @@ void render() {
                             )
                 ) ;
     std::fstream log ;
-    log.open( "log", std::ios::out ) ;
-    std::set<double> cRec ;
-    //SDL_LockSurface(gScreenSurface);
+    // log.open( "log", std::ios::out ) ;
+    SDL_LockSurface(gScreenSurface);
+    std::map<double,std::map<double,int>> cRecIn ;
+    std::cout << "IN" << std::endl ;
     {
         /*mandelbrot here*/
         double zrSqr = 0, ziSqr = 0, zrMulzi = 0 ;
@@ -55,51 +95,40 @@ void render() {
                 int iterCount = 1 ;
                 // log << c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() << std::endl ;
                 for ( iterCount = 1 ; iterCount <= MAX_ITER ; ++ iterCount ) {
+
                     static std::complex<double> temp;
                     zrSqr = z.real() * z.real() ;
                     ziSqr = z.imag() * z.imag() ;
                     zrMulzi = z.real() * z.imag() ;
                     temp.real( zrSqr - ziSqr ) ;
                     temp.imag( zrMulzi + zrMulzi ) ;
+
                     // z = c + std::pow( z, 2 ) ;
                     z = c + temp ;
-                    if ( iterCount == 1 && cRec.find( c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ) != cRec.end() ) {
-                        std::cout << "HIT!" << std::endl ;
-                        in = true ;
-                        cache = true ;
-                        break ;
-                    } // if
-                    else if ( zrSqr + ziSqr > 4 ) {
-                        PutPixel32_nolock( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), ( iterCount * 20 ) + 0x0055141C ) ;
+                    if ( zrSqr + ziSqr > 4 ) {
+                        putpixel( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), ( iterCount * 20 ) + 0x0055141C ) ;
+                        // renderMem[] ;
                         in = false ;
-                        // cRec[ c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ] = iterCount ;
-                        //log << z << " OUT[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
                         break ;
                     } // if
                     else {
-                        //log << z << " ITER[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
+                        // log << z << " ITER[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
                         in = true ;
                     } // else
                 } // for
 
                 if ( in ) {
-                    //std::cout << 0.008 * ( xBorder / 2 )<< " " << 0.008 * ( yBorder / 2 ) << std::endl ;
-                    //log << z << " IN" << std::endl ;
-                    // system( "pause" ) ;
-                    if ( !cache )
-                      cRec.insert( c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() ) ;
-                    else
-                      cache = false ;
-                    PutPixel32_nolock( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), 0x0 ) ;
-                    //SDL_UpdateWindowSurface( gWindow );
+                    // putpixel( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), 0x00FFCCAA ) ;
+                    // SDL_UpdateWindowSurface( gWindow );
                     // std::cout << "(" << (int)( (Re+1)/0.008 ) << "," << (int)( (Im+1)/0.008 ) << ")" << std::endl ;
                 } // if
             } // for
         } // for
 
     }
-    //SDL_UnlockSurface(gScreenSurface);
-    log.close() ;
+    SDL_UnlockSurface(gScreenSurface);
+    //log.close() ;
+
     SDL_UpdateWindowSurface( gWindow );
     return ;
 } //render
@@ -107,14 +136,8 @@ void render() {
 void render2() {
     SDL_LockSurface(gScreenSurface);
     {
-        /*mandelbrot here*/
-        for ( int x = 0 ; x < xRes ; x ++ ) {
-            for ( int y = 0 ; y < yRes ; y ++ ) {
-                PutPixel32_nolock( gScreenSurface, x, y, 0x00FFFFFF ) ;
-                SDL_UpdateWindowSurface( gWindow );
-            } // for
-        } // for
-
+        Uint8 * pixel = (Uint8*)gScreenSurface->pixels ;
+        memset( pixel, 0xFFFFFF00, 1920*1080*4 ) ;
     }
     SDL_UnlockSurface(gScreenSurface);
 
@@ -149,6 +172,7 @@ int main(int argc, char *argv[]) {
     // do some work
     render() ;
     // record end time
+    std::cout << "OUT" << std::endl ;
     auto end = std::chrono::system_clock::now();
     std::chrono::duration<double> diff = end-start;
     std::cout << "Render time is " << diff.count() << " s\n";
