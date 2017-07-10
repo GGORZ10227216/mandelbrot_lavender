@@ -7,7 +7,7 @@
 
 #include <SDL.h>
 #include <stdlib.h> //rand()
-#define MAX_ITER 8000
+#define MAX_ITER 3000
 
 static float r = 0.0f;
 static SDL_Window *gWindow = NULL;
@@ -15,26 +15,17 @@ static SDL_Surface * gScreenSurface = NULL;
 
 int xRes = 1920, yRes = 1080 ;
 
-void set_pixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
-    // printf( "%d\n", surface->pitch ) ;
-    Uint32 *target_pixel = (Uint32*)surface->pixels;
-    target_pixel[ x * surface->h + y ] = pixel;
-}
+struct myComplex {
+    double real ;
+    double imag ;
 
-void PutPixel32_nolock(SDL_Surface * surface, int x, int y, Uint32 color) {
-    //printf( "%d %d\r", x, y ) ;
-    if ( x < 0 || y < 0 )
-        return ;
-    if ( x >= xRes || y >= yRes )
-        return ;
+    myComplex( const double & r, const double & i )
+        : real( r ), imag( i ) {
 
-    Uint8 * pixel = (Uint8*)surface->pixels;
-    pixel += (y * surface->pitch) + (x * sizeof(Uint32));
-    *((Uint32*)pixel) = color;
-}
+    } // myComplex
+};
 
-void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
-{
+void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
     if ( x < 0 || y < 0 )
         return ;
     if ( x >= xRes || y >= yRes )
@@ -70,8 +61,9 @@ void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
         break;
     }
 }
-
-void render() {
+using namespace std ;
+void render( double xStart, double xEnd, double yStart, double xPan, double yPan ) {
+    // 16:9 --> 4:2.25
     SDL_FillRect( gScreenSurface, NULL,
                   SDL_MapRGB( gScreenSurface->format,
                               0,
@@ -79,55 +71,57 @@ void render() {
                               0
                             )
                 ) ;
-    std::fstream log ;
-    // log.open( "log", std::ios::out ) ;
-    SDL_LockSurface(gScreenSurface);
-    std::map<double,std::map<double,int>> cRecIn ;
-    std::cout << "IN" << std::endl ;
-    {
-        /*mandelbrot here*/
-        double zrSqr = 0, ziSqr = 0, zrMulzi = 0 ;
-        for ( double Re = -2 ; Re <= 2 ; Re += 0.00208 ) {
-            for ( double Im = -2 ; Im <= 2 ; Im += 0.00208 ) {
-                std::complex<double> z( 0, 0 ) ;
-                std::complex<double> c( Re, Im ) ;
-                bool in = false, cache = false ;
-                int iterCount = 1 ;
-                // log << c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() << std::endl ;
-                for ( iterCount = 1 ; iterCount <= MAX_ITER ; ++ iterCount ) {
 
-                    static std::complex<double> temp;
-                    zrSqr = z.real() * z.real() ;
-                    ziSqr = z.imag() * z.imag() ;
-                    zrMulzi = z.real() * z.imag() ;
-                    temp.real( zrSqr - ziSqr ) ;
-                    temp.imag( zrMulzi + zrMulzi ) ;
+    /*mandelbrot here*/
+    double xScale = 4. / xRes ;
+    double transXstart = -2 + ( xStart * xScale ) ;
+    double transYstart = -1.125 + ( yStart * xScale ) ;
+    double transXend = -2 + ( xEnd * xScale ) ;
+    double transYend = transYstart + ( transXend - transXstart ) * 0.5625 ;
+    double resultScale = ( transXend - transXstart ) / 1920 ;
+    double yEnd = yStart + ( xEnd - xStart ) * 0.5625 ;
+    cout << "transform scale: " << xScale << endl
+         << "transXstart: " << transXstart << endl
+         << "transYstart: " << transYstart << endl
+         << "transXend: " << transXend << endl
+         << "transYend: " << transYend << endl
+         << "result scale: " << resultScale << endl
+         << "real yEnd: " << yEnd << endl ;
+    // return ;
 
-                    // z = c + std::pow( z, 2 ) ;
-                    z = c + temp ;
+    double zrSqr = 0, ziSqr = 0, zrMulzi = 0 ;
+    for ( double Re = transXstart ; Re <= transXend ; Re += resultScale ) {
+        for ( double Im = transYstart ; Im <= transYend ; Im += resultScale ) {
+            myComplex z( 0, 0 ) ;
+            myComplex c( Re, Im ) ;
+            bool in = false, cache = false ;
+            int iterCount = 1 ;
+            // log << c.real() * c.real() + 2 * c.real() * c.imag() - c.imag() * c.imag() << std::endl ;
+            for ( iterCount = 1 ; iterCount <= MAX_ITER ; ++ iterCount ) {
+                if( Re*(1+Re*(8*Re*Re+(16*Im*Im-3)))+Im*Im*(8*Im*Im-3) < 3./32 || ((Re+1)*(Re+1)+Im*Im)<1./16 )
+                    iterCount = MAX_ITER ;
+                else {
+                    myComplex temp( 0, 0 ) ;
+                    zrSqr = z.real * z.real ;
+                    ziSqr = z.imag * z.imag ;
+                    zrMulzi = z.real * z.imag ;
+                    temp.real = zrSqr - ziSqr  ;
+                    temp.imag = zrMulzi + zrMulzi ;
+
                     if ( zrSqr + ziSqr > 4 ) {
-                        putpixel( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), ( iterCount * 20 ) + 0x0055141C ) ;
+                        putpixel( gScreenSurface, (int)( Re / resultScale + xPan ),
+                                  (int)( Im / resultScale + yPan ), ( iterCount * 20 ) + 0x0055141C ) ;
                         // renderMem[] ;
-                        in = false ;
-                        break ;
+                        iterCount = MAX_ITER ;
                     } // if
                     else {
-                        // log << z << " ITER[" << iterCount << "," << z.real() * z.real() + z.imag() * z.imag() << "]" << std::endl ;
-                        in = true ;
+                        z.real = c.real + temp.real ;
+                        z.imag = c.imag + temp.imag ;
                     } // else
-                } // for
-
-                if ( in ) {
-                    // putpixel( gScreenSurface, (int)( Re / 0.00208 + 960 ), (int)( Im / 0.00208 + 540 ), 0x00FFCCAA ) ;
-                    // SDL_UpdateWindowSurface( gWindow );
-                    // std::cout << "(" << (int)( (Re+1)/0.008 ) << "," << (int)( (Im+1)/0.008 ) << ")" << std::endl ;
-                } // if
+                } // else
             } // for
         } // for
-
-    }
-    SDL_UnlockSurface(gScreenSurface);
-    //log.close() ;
+    } // for
 
     SDL_UpdateWindowSurface( gWindow );
     return ;
@@ -166,13 +160,13 @@ int main(int argc, char *argv[]) {
     // system( "pause" ) ;
     // std::thread renderThread( render ) ;
     bool quitting = false ;
-    //double x =1 , y = 1 ;
-
+    double x = xRes/2, y = yRes/2 ;
+    int sx = 0, ex = xRes, sy = 0 ;
     auto start = std::chrono::system_clock::now();
     // do some work
-    render() ;
+    for ( int i = -)
+    render( sx, ex, sy, xRes/2, yRes/2 ) ;
     // record end time
-    std::cout << "OUT" << std::endl ;
     auto end = std::chrono::system_clock::now();
     std::chrono::duration<double> diff = end-start;
     std::cout << "Render time is " << diff.count() << " s\n";
@@ -185,6 +179,44 @@ int main(int argc, char *argv[]) {
             if(event.type == SDL_QUIT) {
                 quitting = true;
             } // if
+            else if ( event.type == SDL_KEYDOWN ) {
+                switch (event.key.keysym.sym) {
+                case SDLK_LEFT:
+                    x-=10;
+                    break;
+                case SDLK_RIGHT:
+                    x+=10;
+                    break;
+                case SDLK_UP:
+                    y-=10;
+                    break;
+                case SDLK_DOWN:
+                    y+=10;
+                    break;
+                case SDLK_q:
+                    sx+=1;
+                    break;
+                case SDLK_a:
+                    sx-=1;
+                    break;
+                case SDLK_w:
+                    ex+=1;
+                    break;
+                case SDLK_s:
+                    ex-=1;
+                    break;
+                case SDLK_e:
+                    sy+=1;
+                    break;
+                case SDLK_d:
+                    sy-=1;
+                    break;
+                }
+
+
+                cout << x << " " << y << endl ;
+                //render( sx, ex, sy, x, y ) ;
+            } // else
             else {
                 if ( event.type == SDL_MOUSEBUTTONDOWN ) {
                     switch (event.button.button) {

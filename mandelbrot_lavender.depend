@@ -1,10 +1,11 @@
 # depslib dependency file v1.0
-1499417668 source:c:\users\lab312\documents\dsproj\mandelbrot_lavender\main.cpp
+1499679923 source:c:\users\lab312\documents\dsproj\mandelbrot_lavender\main.cpp
 	<complex>
 	<iostream>
 	<thread>
 	<fstream>
-	<unordered_map>
+	<map>
+	<algorithm>
 	<SDL.h>
 	<stdlib.h>
 
